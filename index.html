@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 융합 미디어아트 연구소</title>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        /* 폰트 & 기본 설정 */
+        body { font-family: 'Pretendard', 'Malgun Gothic', sans-serif; margin: 0; overflow: hidden; display: flex; height: 100vh; background-color: #f1f3f5; }
+        
+        /* 로그인 오버레이 */
+        #login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
+        .login-box { background: white; padding: 40px; border-radius: 16px; text-align: center; width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+        .login-box input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        .login-box button { width: 100%; padding: 12px; background: #4c6ef5; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; margin-top: 10px; }
+
+        /* === [메인 레이아웃] === */
+        #main-app { display: none; width: 100%; height: 100%; }
+
+        /* 1. 왼쪽 패널 (코드 + 하단 실행영역) : 화면의 50% 차지 (수정됨) */
+        #left-panel { 
+            width: 50%; 
+            display: flex; 
+            flex-direction: column; 
+            border-right: 1px solid #ced4da; 
+            background: white; 
+            padding: 15px; 
+            box-sizing: border-box;
+        }
+
+        /* 코드 에디터 영역 (상단) */
+        .editor-section { flex: 1; display: flex; flex-direction: column; overflow: hidden; margin-bottom: 10px; }
+        h3 { margin: 5px 0 5px 0; font-size: 15px; color: #495057; display: flex; align-items: center; gap: 5px; }
+        textarea { width: 100%; padding: 10px; border: 1px solid #dee2e6; border-radius: 6px; resize: none; font-family: 'D2Coding', monospace; outline: none; box-sizing: border-box; }
+        #teacher-code { height: 80px; background-color: #f8f9fa; color: #495057; margin-bottom: 10px; }
+        #student-code { flex: 1; background-color: #fff; color: #212529; border: 2px solid #e9ecef; }
+        #student-code:focus { border-color: #4c6ef5; }
+
+        /* 하단 컨트롤 영역 (버튼 1/3 + 캔버스 2/3) */
+        .bottom-control-area { 
+            height: 250px; /* 높이 고정 */
+            display: flex; 
+            gap: 10px; 
+            border-top: 1px solid #e9ecef; 
+            padding-top: 15px; 
+        }
+
+        /* 왼쪽: 버튼 그룹 (1/3) */
+        .btn-group { 
+            flex: 1; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 8px; 
+        }
+        .btn-group button { 
+            flex: 1; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            font-size: 14px; 
+            transition: 0.2s; 
+        }
+        #run-btn { background-color: #4c6ef5; color: white; }
+        #run-btn:hover { background-color: #364fc7; }
+        #save-btn { background-color: #20c997; color: white; }
+        #save-btn:hover { background-color: #12b886; }
+
+        /* 오른쪽: 캔버스 (2/3) */
+        #canvas-wrapper {
+            flex: 2; 
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+        #canvas-frame { width: 100%; height: 100%; border: none; }
+
+
+        /* 2. 오른쪽 패널 (AI 채팅) : 화면의 50% 차지 (수정됨) */
+        #right-panel { 
+            width: 50%; 
+            display: flex; 
+            flex-direction: column; 
+            background: #f8f9fa; 
+            border-left: 1px solid #fff;
+            height: 100%; /* 높이 꽉 채우기 */
+            overflow: hidden; /* 전체 스크롤 방지 */
+        }
+
+        /* 채팅창 레이아웃 수정 (입력창 고정용) */
+        #chat-container { 
+            flex: 1; /* 남은 공간 모두 차지 */
+            display: flex; 
+            flex-direction: column; 
+            padding: 15px; 
+            padding-bottom: 0;
+            overflow: hidden; /* 내부 스크롤 제어 */
+        }
+        
+        #chat-header { 
+            font-size: 18px; 
+            font-weight: bold; 
+            color: #343a40; 
+            margin-bottom: 15px; 
+            flex-shrink: 0; /* 헤더 크기 고정 */
+        }
+
+        /* 여기가 스크롤되는 영역 */
+        #chat-area { 
+            flex: 1; 
+            overflow-y: auto; 
+            padding-right: 5px; 
+            margin-bottom: 10px; 
+            /* 스크롤 부드럽게 */
+            scroll-behavior: smooth;
+        }
+        
+        /* 입력창 영역 (항상 하단 고정) */
+        #input-area { 
+            flex-shrink: 0; /* 크기 줄어들지 않음 */
+            background: white; 
+            padding: 15px; 
+            border-top: 1px solid #dee2e6; 
+            display: flex; 
+            gap: 10px; 
+        }
+        
+        #user-input { flex: 1; padding: 12px; border: 1px solid #ced4da; border-radius: 25px; outline: none; font-size: 14px; }
+        #user-input:focus { border-color: #4c6ef5; }
+        #send-btn { padding: 0 20px; background: #4c6ef5; color: white; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; white-space: nowrap; }
+
+        /* 말풍선 스타일 */
+        .msg-ai { text-align: left; margin: 8px 0; }
+        .msg-ai span { background-color: #e9ecef; padding: 10px 14px; border-radius: 0 18px 18px 18px; display: inline-block; color: #333; font-size: 14px; line-height: 1.5; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .msg-user { text-align: right; margin: 8px 0; }
+        .msg-user span { background-color: #4c6ef5; color: white; padding: 10px 14px; border-radius: 18px 0 18px 18px; display: inline-block; font-size: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .error-msg { color: #fa5252; font-size: 0.85em; text-align: center; margin: 10px 0; }
+
+        /* 스크롤바 꾸미기 */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <div id="login-overlay">
+        <div class="login-box">
+            <h2>🎨 ArtLab 입장</h2>
+            <input type="text" id="input-school-id" placeholder="학번 (예: 10101)">
+            <input type="text" id="input-name" placeholder="이름 (예: 김미래)">
+            <button onclick="handleLogin()">입장하기</button>
+        </div>
+    </div>
+
+    <div id="main-app">
+        
+        <div id="left-panel">
+            <div class="editor-section">
+                <div style="display: flex; justify-content: space-between;">
+                    <h3>🔒 기본 설정</h3>
+                    <span id="display-user" style="font-size: 13px; color: #868e96; font-weight: bold;"></span>
+                </div>
+                <textarea id="teacher-code" readonly>
+let distance = 0;
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  background(240);
+}</textarea>
+
+                <h3>✨ 나의 코드</h3>
+                <textarea id="student-code">
+function draw() {
+  distance = mouseX; 
+  background(240); 
+  fill(255, 100, 150);
+  circle(width/2, height/2, distance);
+}</textarea>
+            </div>
+
+            <div class="bottom-control-area">
+                <div class="btn-group">
+                    <button id="run-btn" onclick="runCode()">▶ 코드 실행</button>
+                    <button id="save-btn" onclick="saveCode()">💾 저장하기</button>
+                </div>
+                <div id="canvas-wrapper">
+                    <iframe id="canvas-frame"></iframe>
+                </div>
+            </div>
+        </div>
+
+        <div id="right-panel">
+            <div id="chat-container">
+                <div id="chat-header">🤖 AI 멘토</div>
+                <div id="chat-area">
+                    <div class="msg-ai"><span>반가워요! 오늘은 어떤 코드를 만들어볼까요? 막히는 부분이 있으면 언제든 물어보세요. 😊</span></div>
+                </div>
+            </div>
+            <div id="input-area">
+                <input type="text" id="user-input" placeholder="질문을 입력하세요...">
+                <button id="send-btn" onclick="sendMessage()">전송</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ==========================================
+        // 기본 로직
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyDqu_8E4nqi8Q7GvPiBGlaM7rng2px_8HM",
+            authDomain: "artlab-c0e83.firebaseapp.com",
+            projectId: "artlab-c0e83",
+            storageBucket: "artlab-c0e83.firebasestorage.app",
+            messagingSenderId: "612718659232",
+            appId: "1:612718659232:web:94cc0d785731bddceaabc5",
+            measurementId: "G-FY3YR269E0"
+        };
+
+        let auth, db;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            auth = firebase.auth();
+            db = firebase.firestore();
+        } catch (e) { console.error(e); }
+
+        function handleLogin() {
+            const sid = document.getElementById('input-school-id').value;
+            const sname = document.getElementById('input-name').value;
+            if (!sid || !sname) { alert("정보를 입력해주세요!"); return; }
+
+            auth.signInAnonymously().then((cred) => {
+                db.collection("students").doc(sid).set({
+                    uid: cred.user.uid, schoolId: sid, name: sname, lastLogin: new Date()
+                }, { merge: true }).then(() => {
+                    document.getElementById('login-overlay').style.display = 'none';
+                    document.getElementById('main-app').style.display = 'flex';
+                    document.getElementById('display-user').innerText = `${sid} ${sname}`;
+                    runCode(); 
+                });
+            }).catch((e) => alert("로그인 오류: " + e.message));
+        }
+
+        function saveCode() {
+            const sid = document.getElementById('input-school-id').value;
+            const code = document.getElementById('student-code').value;
+            const btn = document.getElementById('save-btn');
+            
+            btn.innerText = "⏳ 저장 중...";
+            db.collection("students").doc(sid).set({ code: code, savedAt: new Date() }, { merge: true })
+            .then(() => { alert("저장 완료!"); btn.innerText = "💾 저장하기"; })
+            .catch((e) => { alert("실패: " + e.message); btn.innerText = "💾 저장하기"; });
+        }
+
+        function runCode() {
+            const fullCode = document.getElementById('teacher-code').value + "\n" + document.getElementById('student-code').value;
+            const html = `<html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"><\/script></head><body style="margin:0;"><script>try{${fullCode}}catch(e){console.error(e)}<\/script></body></html>`;
+            document.getElementById('canvas-frame').srcdoc = html;
+        }
+
+        async function sendMessage() {
+            // ✅ 선생님의 API 키
+            const GOOGLE_API_KEY = "AIzaSyBQPlO_cRUJ4pDQ1ex-mXvDXDZukz29whM"; 
+            
+            // ✅ 요청하신 모델명
+            const MODEL_NAME = "gemini-3-flash-preview"; 
+            
+            const inputField = document.getElementById('user-input');
+            const chatArea = document.getElementById('chat-area');
+            const userText = inputField.value;
+            const studentCode = document.getElementById('student-code').value;
+            
+            // 저장용 정보
+            const sid = document.getElementById('input-school-id').value;
+            const sname = document.getElementById('input-name').value;
+
+            if (userText.trim() === "") return; 
+
+            chatArea.innerHTML += `<div class="msg-user"><span>${userText}</span></div>`;
+            inputField.value = ""; 
+            
+            // 스크롤을 맨 아래로 (requestAnimationFrame으로 렌더링 후 실행 보장)
+            requestAnimationFrame(() => {
+                chatArea.scrollTop = chatArea.scrollHeight;
+            });
+
+            // ✅ 요청하신 고등학교 선생님 멘트
+            const prompt = `
+                당신은 고등학교 선생님이자 실력 있는 개발자 멘토입니다.
+                
+                [현재 학생 코드]:
+                ${studentCode}
+
+                [학생 질문]: 
+                ${userText}
+                
+                <답변 가이드라인>
+                1. 말투: "해요/합니다"체를 사용하되, 유치한 감탄사나 이모티콘은 절제하고 담백하고 전문적으로 답변하세요.
+                2. 내용: 정답만 알려주기보다 '원리'와 '논리'를 설명해주세요. 필요한 경우 컴퓨터 공학 용어를 적절히 섞어서 설명해도 좋습니다.
+                3. 목표: 학생이 스스로 문제를 해결할 수 있도록 핵심적인 힌트나 디버깅 방법을 제시하세요.
+            `;
+
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GOOGLE_API_KEY}`;
+
+            try {
+                const loadingId = "loading-" + Date.now();
+                chatArea.innerHTML += `<div id="${loadingId}" class="msg-ai"><span>🤖 생각하는 중...</span></div>`;
+                chatArea.scrollTop = chatArea.scrollHeight;
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+
+                const data = await response.json();
+                document.getElementById(loadingId).remove();
+
+                if (data.candidates && data.candidates[0].content) {
+                    const aiText = data.candidates[0].content.parts[0].text;
+                    const formattedText = aiText.replace(/\n/g, '<br>');
+                    
+                    chatArea.innerHTML += `<div class="msg-ai"><span>${formattedText}</span></div>`;
+                    
+                    // 파이어베이스 저장
+                    if (sid && sname) { 
+                        db.collection("chat_logs").add({
+                            schoolId: sid, name: sname, question: userText, answer: aiText, timestamp: new Date()
+                        });
+                    }
+                } else if (data.error) {
+                    chatArea.innerHTML += `<div class="error-msg">⚠️ 오류: ${data.error.message}</div>`;
+                }
+                
+                // 답변 온 후 스크롤 내리기
+                chatArea.scrollTop = chatArea.scrollHeight;
+
+            } catch (error) {
+                if(document.getElementById(loadingId)) document.getElementById(loadingId).remove();
+                chatArea.innerHTML += `<div class="error-msg">⚠️ 통신 실패: ${error.message}</div>`;
+            }
+        }
+
+        document.getElementById("user-input").addEventListener("keypress", function(e) {
+            if (e.key === "Enter") sendMessage();
+        });
+    </script>
+</body>
+</html>
